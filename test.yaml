@@ -1,0 +1,9 @@
+foo: bar
+quux:
+    - one
+    - two
+    - three
+    - four:
+        - a
+        - b
+        - c
