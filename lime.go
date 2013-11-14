@@ -5,9 +5,11 @@ import (
     "path/filepath"
     "html/template"
     "launchpad.net/goyaml"
+    "regexp"
     "time"
     "log"
     "os"
+    "strings"
 )
 
 type convertible struct {
@@ -45,6 +47,19 @@ type site struct {
 
 func validPost(f os.FileInfo) bool {
     return true
+}
+
+func readYAML(path string) {
+    re := regexp.MustCompile(`(?sm)---(\s*\n.*?\n?)^---\s*$\n?(.*)`)
+    bs, err := ioutil.ReadFile(path)
+    if err != nil {
+        log.Fatal(err)
+    }
+    matches := re.FindStringSubmatch(string(bs))
+    data := strings.TrimSpace(matches[1])
+    content := strings.TrimSpace(matches[2])
+    log.Println(data)
+    log.Println(content)
 }
 
 func newPost(s *site, source string, dir string, name string) *post {
@@ -146,6 +161,7 @@ func main() {
         "posts": "_posts",
         "layouts" : "_layouts",
     }
+    readYAML("test.yaml")
     s := newSite(config)
     s.read()
     log.Printf("%v", s)

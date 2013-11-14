@@ -1,9 +1,6 @@
+---
 foo: bar
-quux:
-    - one
-    - two
-    - three
-    - four:
-        - a
-        - b
-        - c
+quux: baz
+---
+Actual content goes here.
+Can (and often will) be multiline.
