@@ -39,9 +39,8 @@ type site struct {
     posts []*post
     source string
     dest string
-    // TODO: We need nested categories!
-    // categories map[string][]*post
-    // tags map[string][]*post
+    categories map[string][]*post
+    tags map[string][]*post
     data map[string]interface{}
 }
 
@@ -49,21 +48,26 @@ func validPost(f os.FileInfo) bool {
     return true
 }
 
-func readYAML(path string) {
+func (c *convertible) readYAML(base string, name string) {
+    path := filepath.Join(base, name)
     re := regexp.MustCompile(`(?sm)---(\s*\n.*?\n?)^---\s*$\n?(.*)`)
     bs, err := ioutil.ReadFile(path)
     if err != nil {
         log.Fatal(err)
     }
-    matches := re.FindStringSubmatch(string(bs))
-    data := strings.TrimSpace(matches[1])
-    content := strings.TrimSpace(matches[2])
-    log.Println(data)
-    log.Println(content)
+    matches := re.FindSubmatch(bs)
+    if len(matches) == 3 {
+        if err := goyaml.Unmarshal(matches[1], &c.data); err != nil {
+            log.Printf("Failed to parse front matter in '%s': %s", err)
+        }
+        c.content = strings.TrimSpace(string(matches[2]))
+    } else {
+        log.Printf("Could not find front matter in '%s'", path)
+    }
 }
 
 func newPost(s *site, source string, dir string, name string) *post {
-    return &post{
+    p := &post{
         site: s, 
         name: name,
         dir: dir,
@@ -71,6 +75,8 @@ func newPost(s *site, source string, dir string, name string) *post {
         categories: []string { },
         tags: []string { },
     }
+    p.readYAML(p.base, name)
+    return p
 }
 
 func newSite(config map[string]interface{}) *site {
@@ -96,9 +102,8 @@ func (s *site) reset() {
     s.layouts = new(template.Template)
     s.posts = make([]*post, 0, 128)
     s.data = map[string]interface{} { "TODO": "data" }
-    // TODO: We need nested categories!
-    // s.categories = make(map[string][]*post)
-    // s.tags = make(map[string][]*post)
+    s.categories = make(map[string][]*post)
+    s.tags = make(map[string][]*post)
 }
 
 func (s *site) entries(subfolder string) []string {
@@ -128,13 +133,12 @@ func (s *site) readPosts() {
 
 func (s *site) addPost(p *post) {
     s.posts = append(s.posts, p)
-    // This will not work because categories can be nested
-    // for _, c := range p.categories {
-    //     s.categories[c] = append(s.categories[c], p)
-    // }
-    // for _, t := range p.tags {
-    //     s.tags[t] = append(s.tags[t], p)
-    // }
+    for _, c := range p.categories {
+        s.categories[c] = append(s.categories[c], p)
+    }
+    for _, t := range p.tags {
+        s.tags[t] = append(s.tags[t], p)
+    }
 }
 
 func (s *site) readLayouts() {
@@ -161,21 +165,7 @@ func main() {
         "posts": "_posts",
         "layouts" : "_layouts",
     }
-    readYAML("test.yaml")
     s := newSite(config)
     s.read()
     log.Printf("%v", s)
-}
-
-func yamlExample() {
-    bs, err := ioutil.ReadFile("test.yaml")
-    if err != nil {
-        log.Fatal(err)
-    }
-    var t map[string]interface{}
-    err = goyaml.Unmarshal(bs, &t)
-    if err != nil {
-        log.Fatal(err)
-    }
-    log.Printf("%v", t)    
 }
