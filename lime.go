@@ -153,6 +153,31 @@ func (p *post) published() bool {
     return v
 }
 
+func (p *post) index() int {
+    for i, _ := range p.site.posts {
+        if p.site.posts[i] == p {
+            return i
+        }
+    }
+    return -1
+}
+
+func (p *post) next() *post {
+    pos := p.index()
+    if pos != -1 && pos < len(p.site.posts) - 1 {
+        return p.site.posts[pos + 1]
+    }
+    return nil
+}
+
+func (p *post) previous() *post {
+    pos := p.index()
+    if pos != -1 && pos > 0 {
+        return p.site.posts[pos - 1]
+    }
+    return nil
+}
+
 func newSite(config map[string]interface{}) *site {
     source, err := filepath.Abs(config["source"].(string))
     if err != nil {
@@ -242,6 +267,6 @@ func main() {
     s.read()
     log.Printf("%v", s)
     for _, p := range s.posts {
-        log.Printf("%s [%v, published: %v]", p.title(), p.date, p.published())
+        log.Printf("%s [%v, published: %v, prev: %v, next: %v]", p.title(), p.date, p.published(), p.previous(), p.next())
     }
 }
