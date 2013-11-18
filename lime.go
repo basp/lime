@@ -10,26 +10,28 @@ import (
     "log"
     "os"
     "strings"
+    "errors"
 )
 
+type data map[string]interface{}
+
 type convertible struct {
-    data map[string]interface{}
+    data data
     content string
 }
 
 type post struct {
     convertible
     site *site
-    time time.Time
+    date time.Time
     name string
-    dir string
     base string
     slug string
+    ext string
     extract string
     output string
     categories []string
     tags []string
-    published bool
 }
 
 type site struct {
@@ -46,6 +48,28 @@ type site struct {
 
 func validPost(f os.FileInfo) bool {
     return true
+}
+
+func matchName(name string) (date string, slug string, ext string, err error) {
+    re := regexp.MustCompile(`([0-9]*-[0-9]*-[0-9]*)-([a-zA-Z0-9\-]*).([a-z]*)`)
+    matches := re.FindStringSubmatch(name)
+    if len(matches) == 4 {
+        date = matches[1]
+        slug = matches[2]
+        ext = matches[3]
+        err = nil
+    } else {
+        err = errors.New("Could not match post name")
+    }
+    return
+}
+
+func (d data) fetch(key string, defaultVal interface{}) interface{} {
+    v, ok := d[key]
+    if !ok {
+        return defaultVal
+    }
+    return v
 }
 
 func (c *convertible) readYAML(base string, name string) {
@@ -66,17 +90,67 @@ func (c *convertible) readYAML(base string, name string) {
     }
 }
 
-func newPost(s *site, source string, dir string, name string) *post {
+func newPost(s *site, source string, name string) *post {
     p := &post{
         site: s, 
         name: name,
-        dir: dir,
-        base: filepath.Join(source, dir, s.config["posts"].(string)),
+        base: filepath.Join(source, s.config["posts"].(string)),
         categories: []string { },
         tags: []string { },
     }
+    p.process()
     p.readYAML(p.base, name)
+    v, ok := p.data["date"]
+    if ok {
+        p.date = parseDate(v.(string))
+    }
     return p
+}
+
+func parseDate(s string) time.Time {
+    v, err := time.Parse("2006-01-02", s)
+    if err != nil {
+        log.Fatal(err)
+    }
+    return v
+}
+
+func (p *post) process() {
+    datestr, slug, ext, err := matchName(p.name)
+    if err != nil {
+        log.Fatal(err)
+    }
+    p.date = parseDate(datestr)
+    p.slug = slug
+    p.ext = ext
+}
+
+func (p *post) title() string {
+    v, ok := p.data.fetch("title", p.titleizedSlug()).(string)
+    if !ok {
+        log.Fatalf("Item 'title' should be a string in '%s'", p.name)
+    }
+    return v
+}
+
+func (p *post) titleizedSlug() string {
+    chunks := strings.Split(p.slug, "-")
+    capitalized := make([]string, 0, len(chunks))
+    for _, c := range chunks {
+        c = strings.TrimSpace(c)
+        if len(c) > 0 {
+            capitalized = append(capitalized, strings.Title(c))
+        }
+    }
+    return strings.Join(capitalized, " ")
+}
+
+func (p *post) published() bool {
+    v, ok := p.data.fetch("published", false).(bool)
+    if !ok {
+        log.Fatalf("Item 'published' should be a boolean in '%s'", p.name)
+    }
+    return v
 }
 
 func newSite(config map[string]interface{}) *site {
@@ -125,8 +199,7 @@ func (s *site) entries(subfolder string) []string {
 func (s *site) readPosts() {
     entries := s.entries(s.config["posts"].(string))
     for _, e := range entries {
-        dir := filepath.Dir(e)
-        p := newPost(s, s.source, dir, e)
+        p := newPost(s, s.source, e)
         s.addPost(p)
     }
 }
@@ -168,4 +241,7 @@ func main() {
     s := newSite(config)
     s.read()
     log.Printf("%v", s)
+    for _, p := range s.posts {
+        log.Printf("%s [%v, published: %v]", p.title(), p.date, p.published())
+    }
 }
