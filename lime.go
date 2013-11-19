@@ -183,7 +183,6 @@ func newPost(s *site, source string, name string) *post {
         site: s, 
         name: name,
         base: filepath.Join(source, s.config["posts"].(string)),
-        categories: []string { },
         tags: []string { },
     }
     p.process()
@@ -192,7 +191,25 @@ func newPost(s *site, source string, name string) *post {
     if ok {
         p.date = parseDate(v.(string))
     }
+    p.populateCategories()
+    p.populateTags()
     return p
+}
+
+func (p *post) populateCategories() {
+    cats, _ := p.data.fetch("categories", make([]interface{}, 0, 0)).([]interface{})
+    p.categories = make([]string, 0, len(cats))
+    for _, c := range cats {
+        p.categories = append(p.categories, c.(string))
+    }
+}
+
+func (p *post) populateTags() {
+    tags, _ := p.data.fetch("tags", make([]interface{}, 0, 0)).([]interface{})
+    p.tags = make([]string, 0, len(tags))
+    for _, t := range tags {
+        p.tags = append(p.tags, t.(string))
+    }
 }
 
 func (p *post) process() {
@@ -226,10 +243,7 @@ func (p *post) titleizedSlug() string {
 }
 
 func (p *post) published() bool {
-    v, ok := p.data.fetch("published", false).(bool)
-    if !ok {
-        log.Fatalf("Item 'published' should be a boolean in '%s'", p.name)
-    }
+    v, _ := p.data.fetch("published", false).(bool)
     return v
 }
 
@@ -260,7 +274,7 @@ func (p *post) previous() *post {
 
 func (p *post) placeholders() data {
     return data {
-        "categories": "",
+        "categories": strings.Join(p.categories, "/"),
         "year": p.date.Year(),
         "month": int(p.date.Month()),
         "day": p.date.Day(),
@@ -272,7 +286,12 @@ func (p *post) template() string {
     return "/{{.categories}}/{{.year}}/{{.month}}/{{.day}}/{{.title}}.html"
 }
 
-func (p *post) render() {
+func (p *post) url() string {
+    u := newUrl(p.template(), p.placeholders(), "")
+    return u.String()
+}
+
+func (p *post) render(payload data) {
     p.output = transform(p.content)
     name, ok := p.data["layout"].(string)
     if !ok {
@@ -282,8 +301,20 @@ func (p *post) render() {
     if !ok {
         return
     }    
-    payload := data { "content": p.output }
+    payload.merge(data { "content": p.output })
     p.output = layout.render(p.site.layouts, payload)
+}
+
+func (p *post) write(dir string) {
+    path := filepath.Join(dir, p.url())
+    _, err := os.Stat(filepath.Dir(path))
+    if os.IsNotExist(err) {
+        os.MkdirAll(filepath.Dir(path), 0777)
+    }
+    err = ioutil.WriteFile(path, []byte(p.output), 0777)
+    if err != nil {
+        log.Fatal(err)
+    }
 }
 
 func newSite(config map[string]interface{}) *site {
@@ -371,8 +402,16 @@ func (s *site) read() {
 }
 
 func (s *site) render() {
+    payload := data {}
     for _, p := range s.posts {
-        p.render()
+        p.render(payload)
+    }
+}
+
+func (s *site) write() {
+    for _, p := range s.posts {
+        dir := filepath.Join(s.config["source"].(string), s.config["dest"].(string))
+        p.write(dir)
     }
 }
 
@@ -412,6 +451,7 @@ func main() {
     s := newSite(config)
     s.read()
     s.render()
+    s.write()
     for _, p := range s.posts {
         log.Println(p.output)
         url := newUrl(p.template(), p.placeholders(), "")
