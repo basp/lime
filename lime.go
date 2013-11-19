@@ -452,9 +452,4 @@ func main() {
     s.read()
     s.render()
     s.write()
-    for _, p := range s.posts {
-        log.Println(p.output)
-        url := newUrl(p.template(), p.placeholders(), "")
-        log.Println(url.String())
-    }
 }
