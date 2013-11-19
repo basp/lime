@@ -398,7 +398,7 @@ func (s *site) read() {
 }
 
 func (s *site) render() {
-    payload := data {}
+    payload := data { "site": s }
     for _, p := range s.posts {
         p.render(payload)
     }
