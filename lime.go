@@ -37,6 +37,13 @@ type post struct {
     tags []string
 }
 
+type page struct {
+    convertible
+    site *site
+    name string
+    base string
+}
+
 type layout struct {
     convertible
     site *site
@@ -57,6 +64,12 @@ type site struct {
     data data
 }
 
+type url struct {
+    template string
+    data data
+    permalink string
+}
+
 func validPost(f os.FileInfo) bool {
     return true
 }
@@ -75,12 +88,20 @@ func matchName(name string) (date string, slug string, ext string, err error) {
     return
 }
 
-var p = markdown.NewParser(&markdown.Extensions{Smart:true})
-func transform(md string) string {
+func parseDate(s string) time.Time {
+    v, err := time.Parse("2006-01-02", s)
+    if err != nil {
+        log.Fatal(err)
+    }
+    return v
+}
+
+var md = markdown.NewParser(&markdown.Extensions{Smart:true})
+func transform(input string) string {
     var buffer bytes.Buffer
-    rd := strings.NewReader(md)
+    rd := strings.NewReader(input)
     wr := bufio.NewWriter(&buffer)
-    p.Markdown(rd, markdown.ToHTML(wr))
+    md.Markdown(rd, markdown.ToHTML(wr))
     wr.Flush()
     return buffer.String()
 }
@@ -107,10 +128,7 @@ func (c *convertible) readYAML(base string, name string) {
         log.Fatal(err)
     }
     matches := re.FindSubmatch(bs)
-    // matches[0] contains the full content
-    // matches[1] contains the front matter
-    // matches[2] contains the file content
-    if len(matches) == 3 {
+    if len(matches) == 3 { // all, front matter, body
         if err := goyaml.Unmarshal(matches[1], &c.data); err != nil {
             log.Printf("Failed to parse front matter in '%s': %s", err)
         }
@@ -118,6 +136,21 @@ func (c *convertible) readYAML(base string, name string) {
     } else {
         c.content = strings.TrimSpace(string(bs))
     }
+}
+
+func newLayout(s *site, base string, name string) *layout {
+    l := &layout{
+        site: s,
+        base: base,
+        name: name,
+    }
+    l.process(name)
+    l.readYAML(base, name)
+    return l
+}
+
+func (l *layout) process(name string) {
+    l.ext = filepath.Ext(name)
 }
 
 func (l *layout) render(layouts map[string]*layout, payload data) string {
@@ -145,35 +178,6 @@ func (l *layout) render(layouts map[string]*layout, payload data) string {
     return output
 }
 
-func (p *post) render() string {
-    output := transform(p.content)
-    name, ok := p.data["layout"].(string)
-    if !ok {
-        return output
-    }
-    layout, ok := p.site.layouts[name]
-    if !ok {
-        return output
-    }    
-    payload := data { "content": output }
-    return layout.render(p.site.layouts, payload)
-}
-
-func newLayout(s *site, base string, name string) *layout {
-    l := &layout{
-        site: s,
-        base: base,
-        name: name,
-    }
-    l.process(name)
-    l.readYAML(base, name)
-    return l
-}
-
-func (l *layout) process(name string) {
-    l.ext = filepath.Ext(name)
-}
-
 func newPost(s *site, source string, name string) *post {
     p := &post{
         site: s, 
@@ -189,14 +193,6 @@ func newPost(s *site, source string, name string) *post {
         p.date = parseDate(v.(string))
     }
     return p
-}
-
-func parseDate(s string) time.Time {
-    v, err := time.Parse("2006-01-02", s)
-    if err != nil {
-        log.Fatal(err)
-    }
-    return v
 }
 
 func (p *post) process() {
@@ -260,6 +256,34 @@ func (p *post) previous() *post {
         return p.site.posts[pos - 1]
     }
     return nil
+}
+
+func (p *post) placeholders() data {
+    return data {
+        "categories": "",
+        "year": p.date.Year(),
+        "month": int(p.date.Month()),
+        "day": p.date.Day(),
+        "title": p.slug,
+    }
+}
+
+func (p *post) template() string {
+    return "/{{.categories}}/{{.year}}/{{.month}}/{{.day}}/{{.title}}.html"
+}
+
+func (p *post) render() {
+    p.output = transform(p.content)
+    name, ok := p.data["layout"].(string)
+    if !ok {
+        return
+    }
+    layout, ok := p.site.layouts[name]
+    if !ok {
+        return
+    }    
+    payload := data { "content": p.output }
+    p.output = layout.render(p.site.layouts, payload)
 }
 
 func newSite(config map[string]interface{}) *site {
@@ -346,6 +370,34 @@ func (s *site) read() {
     s.readPosts();
 }
 
+func (s *site) render() {
+    for _, p := range s.posts {
+        p.render()
+    }
+}
+
+func newUrl(template string, data data, permalink string) *url {
+    return &url{template, data, permalink}
+}
+
+func (u *url) generate() string {
+    tmpl, err := template.New("t").Parse(u.template)
+    if err != nil {
+        log.Fatal(err)
+    }
+    var buffer bytes.Buffer
+    wr := bufio.NewWriter(&buffer)
+    tmpl.Execute(wr, u.data)
+    wr.Flush()
+    return buffer.String()    
+}
+
+func (u *url) String() string {
+    s := u.generate()
+    re := regexp.MustCompile(`\/\/`)
+    return re.ReplaceAllString(s, "/")
+}
+
 func main() {
     wd, err := os.Getwd()
     if err != nil {
@@ -359,8 +411,10 @@ func main() {
     }
     s := newSite(config)
     s.read()
+    s.render()
     for _, p := range s.posts {
-        output := p.render()
-        log.Println(output)
+        log.Println(p.output)
+        url := newUrl(p.template(), p.placeholders(), "")
+        log.Println(url.String())
     }
 }
