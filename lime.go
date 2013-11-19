@@ -5,6 +5,7 @@ import (
     "path/filepath"
     "text/template"
     "launchpad.net/goyaml"
+    "github.com/knieriem/markdown"
     "regexp"
     "time"
     "log"
@@ -74,6 +75,16 @@ func matchName(name string) (date string, slug string, ext string, err error) {
     return
 }
 
+var p = markdown.NewParser(&markdown.Extensions{Smart:true})
+func transform(md string) string {
+    var buffer bytes.Buffer
+    rd := strings.NewReader(md)
+    wr := bufio.NewWriter(&buffer)
+    p.Markdown(rd, markdown.ToHTML(wr))
+    wr.Flush()
+    return buffer.String()
+}
+
 func (d data) fetch(key string, defaultVal interface{}) interface{} {
     v, ok := d[key]
     if !ok {
@@ -109,8 +120,8 @@ func (c *convertible) readYAML(base string, name string) {
     }
 }
 
-func (c *convertible) renderAllLayouts(layouts map[string]*layout, payload data) string {
-    tmpl, err := template.New("t").Parse(c.content)
+func (l *layout) render(layouts map[string]*layout, payload data) string {
+    tmpl, err := template.New("t").Parse(l.content)
     if err != nil {
         log.Fatal(err)
     }
@@ -122,16 +133,30 @@ func (c *convertible) renderAllLayouts(layouts map[string]*layout, payload data)
     }
     wr.Flush()
     output := buffer.String()
-    name, ok := c.data["layout"].(string)
+    name, ok := l.data["layout"].(string)
     if !ok {
         return output
     }
-    layout, ok := layouts[name]
+    parent, ok := layouts[name]
     if ok {
         payload.merge(data { "content": output })
-        return layout.renderAllLayouts(layouts, payload)
+        return parent.render(layouts, payload)
     }
     return output
+}
+
+func (p *post) render() string {
+    output := transform(p.content)
+    name, ok := p.data["layout"].(string)
+    if !ok {
+        return output
+    }
+    layout, ok := p.site.layouts[name]
+    if !ok {
+        return output
+    }    
+    payload := data { "content": output }
+    return layout.render(p.site.layouts, payload)
 }
 
 func newLayout(s *site, base string, name string) *layout {
@@ -301,7 +326,6 @@ func (s *site) addPost(p *post) {
 func (s *site) readLayouts() {
     base := filepath.Join(s.source, s.config["layouts"].(string))
     os.Chdir(base)
-    log.Println(base)
     visit := func(path string, f os.FileInfo, err error) error {
         if !f.IsDir() {
             l := newLayout(s, base, path)
@@ -335,9 +359,8 @@ func main() {
     }
     s := newSite(config)
     s.read()
-    data := make(data)
     for _, p := range s.posts {
-        output := p.renderAllLayouts(s.layouts, data)
+        output := p.render()
         log.Println(output)
     }
 }
