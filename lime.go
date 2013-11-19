@@ -223,11 +223,7 @@ func (p *post) process() {
 }
 
 func (p *post) title() string {
-    v, ok := p.data.fetch("title", p.titleizedSlug()).(string)
-    if !ok {
-        log.Fatalf("Item 'title' should be a string in '%s'", p.name)
-    }
-    return v
+    return p.data.fetch("title", p.titleizedSlug()).(string)
 }
 
 func (p *post) titleizedSlug() string {
