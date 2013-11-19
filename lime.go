@@ -297,7 +297,7 @@ func (p *post) render(payload data) {
     if !ok {
         return
     }    
-    payload.merge(data { "content": p.output })
+    payload.merge(data { "content": p.output, "title": p.title() })
     p.output = layout.render(p.site.layouts, payload)
 }
 
