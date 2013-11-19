@@ -3,7 +3,7 @@ package main
 import (
     "io/ioutil"
     "path/filepath"
-    "html/template"
+    "text/template"
     "launchpad.net/goyaml"
     "regexp"
     "time"
@@ -11,6 +11,8 @@ import (
     "os"
     "strings"
     "errors"
+    "bytes"
+    "bufio"
 )
 
 type data map[string]interface{}
@@ -34,16 +36,24 @@ type post struct {
     tags []string
 }
 
+type layout struct {
+    convertible
+    site *site
+    name string
+    base string
+    ext string
+}
+
 type site struct {
     time time.Time
     config map[string]interface{}
-    layouts *template.Template
+    layouts map[string]*layout
     posts []*post
     source string
     dest string
     categories map[string][]*post
     tags map[string][]*post
-    data map[string]interface{}
+    data data
 }
 
 func validPost(f os.FileInfo) bool {
@@ -72,6 +82,12 @@ func (d data) fetch(key string, defaultVal interface{}) interface{} {
     return v
 }
 
+func (d data) merge(other data) {
+    for k, v := range other {
+        d[k] = v
+    }
+}
+
 func (c *convertible) readYAML(base string, name string) {
     path := filepath.Join(base, name)
     re := regexp.MustCompile(`(?sm)---(\s*\n.*?\n?)^---\s*$\n?(.*)`)
@@ -80,14 +96,57 @@ func (c *convertible) readYAML(base string, name string) {
         log.Fatal(err)
     }
     matches := re.FindSubmatch(bs)
+    // matches[0] contains the full content
+    // matches[1] contains the front matter
+    // matches[2] contains the file content
     if len(matches) == 3 {
         if err := goyaml.Unmarshal(matches[1], &c.data); err != nil {
             log.Printf("Failed to parse front matter in '%s': %s", err)
         }
         c.content = strings.TrimSpace(string(matches[2]))
     } else {
-        log.Printf("Could not find front matter in '%s'", path)
+        c.content = strings.TrimSpace(string(bs))
     }
+}
+
+func (c *convertible) renderAllLayouts(layouts map[string]*layout, payload data) string {
+    tmpl, err := template.New("t").Parse(c.content)
+    if err != nil {
+        log.Fatal(err)
+    }
+    var buffer bytes.Buffer
+    wr := bufio.NewWriter(&buffer)
+    err = tmpl.Execute(wr, payload)
+    if err != nil {
+        log.Fatal(err)
+    }
+    wr.Flush()
+    output := buffer.String()
+    name, ok := c.data["layout"].(string)
+    if !ok {
+        return output
+    }
+    layout, ok := layouts[name]
+    if ok {
+        payload.merge(data { "content": output })
+        return layout.renderAllLayouts(layouts, payload)
+    }
+    return output
+}
+
+func newLayout(s *site, base string, name string) *layout {
+    l := &layout{
+        site: s,
+        base: base,
+        name: name,
+    }
+    l.process(name)
+    l.readYAML(base, name)
+    return l
+}
+
+func (l *layout) process(name string) {
+    l.ext = filepath.Ext(name)
 }
 
 func newPost(s *site, source string, name string) *post {
@@ -198,7 +257,7 @@ func newSite(config map[string]interface{}) *site {
 
 func (s *site) reset() {
     s.time = time.Now()
-    s.layouts = new(template.Template)
+    s.layouts = map[string]*layout { }
     s.posts = make([]*post, 0, 128)
     s.data = map[string]interface{} { "TODO": "data" }
     s.categories = make(map[string][]*post)
@@ -240,11 +299,22 @@ func (s *site) addPost(p *post) {
 }
 
 func (s *site) readLayouts() {
-    base := filepath.Join(s.source, s.config["layouts"].(string), "*.html")
-    var err error
-    if s.layouts, err = template.ParseGlob(base); err != nil {
+    base := filepath.Join(s.source, s.config["layouts"].(string))
+    os.Chdir(base)
+    log.Println(base)
+    visit := func(path string, f os.FileInfo, err error) error {
+        if !f.IsDir() {
+            l := newLayout(s, base, path)
+            fname := filepath.Base(path)
+            ext := filepath.Ext(path)
+            name := fname[:len(fname) - len(ext)]
+            s.layouts[name] = l
+        }
+        return nil
+    }
+    if err := filepath.Walk(".", visit); err != nil {
         log.Fatal(err)
-    }    
+    }
 }
 
 func (s *site) read() {
@@ -265,8 +335,9 @@ func main() {
     }
     s := newSite(config)
     s.read()
-    log.Printf("%v", s)
+    data := make(data)
     for _, p := range s.posts {
-        log.Printf("%s [%v, published: %v, prev: %v, next: %v]", p.title(), p.date, p.published(), p.previous(), p.next())
+        output := p.renderAllLayouts(s.layouts, data)
+        log.Println(output)
     }
 }
