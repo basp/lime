@@ -1,6 +1,4 @@
-lime
-====
-# Setting up
+## Setting up
 Before we can create posts we first need to setup a working directory for our site. Create this directory somewhere where you can easily access it. Preferably with a nice short path:
 
     cd d:\temp
