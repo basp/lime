@@ -43,7 +43,9 @@ type page struct {
     base string
     dir string
     name string
+    basename string
     ext string
+    output string
 }
 
 type layout struct {
@@ -304,6 +306,11 @@ func (p *post) url() string {
     return u.String()
 }
 
+func (p *page) url() string {
+    u := newUrl(p.template(), p.placeholders(), "")
+    return u.String()
+}
+
 func (p *post) render(payload data) {
     p.output = transform(p.content)
     name, ok := p.data["layout"].(string)
@@ -318,6 +325,20 @@ func (p *post) render(payload data) {
     p.output = layout.render(p.site.layouts, payload)
 }
 
+func (p *page) render(payload data) {
+    p.output = p.content
+    name, ok := p.data["layout"].(string)
+    if !ok {
+        return
+    }
+    layout, ok := p.site.layouts[name]
+    if !ok {
+        return
+    }
+    payload.merge(data { "content": p.output })
+    p.output = layout.render(p.site.layouts, payload)
+}
+
 func (p *post) write(dir string) {
     path := filepath.Join(dir, p.url())
     _, err := os.Stat(filepath.Dir(path))
@@ -328,6 +349,33 @@ func (p *post) write(dir string) {
     if err != nil {
         log.Fatal(err)
     }
+}
+
+func (p *page) write(dir string) {
+    path := filepath.Join(dir, p.url())
+    _, err := os.Stat(filepath.Dir(path))
+    if os.IsNotExist(err) {
+        os.MkdirAll(filepath.Dir(path), 0777)
+    }
+    err = ioutil.WriteFile(path, []byte(p.output), 0777)
+    if err != nil {
+        log.Fatal(err)
+    }
+}
+
+func (p *page) template() string {
+    return "/{{.path}}/{{.basename}}.html" 
+}
+
+func (p *page) placeholders() data {
+    return data {
+        "path": p.dir,
+        "basename": p.basename,
+    }
+}
+
+func (p *page) index() bool {
+    return p.basename == "index"
 }
 
 func newPage(s *site, base string, dir string, name string) *page {
@@ -344,6 +392,7 @@ func newPage(s *site, base string, dir string, name string) *page {
 
 func (p *page) process(name string) {
     p.ext = filepath.Ext(name)
+    p.basename = name[:len(name) - len(p.ext)]
 }
 
 func newSite(config map[string]interface{}) *site {
@@ -368,7 +417,7 @@ func (s *site) reset() {
     s.time = time.Now()
     s.layouts = map[string]*layout { }
     s.posts = make([]*post, 0, 128)
-    s.data = map[string]interface{} { "TODO": "data" }
+    s.data = data { }
     s.categories = make(map[string][]*post)
     s.tags = make(map[string][]*post)
 }
@@ -474,10 +523,17 @@ func (s *site) render() {
     for _, p := range s.posts {
         p.render(payload)
     }
+    for _, p := range s.pages {
+        p.render(payload)
+    }
 }
 
 func (s *site) write() {
     for _, p := range s.posts {
+        dir := filepath.Join(s.config["source"].(string), s.config["dest"].(string))
+        p.write(dir)
+    }
+    for _, p := range s.pages {
         dir := filepath.Join(s.config["source"].(string), s.config["dest"].(string))
         p.write(dir)
     }
@@ -502,7 +558,18 @@ func (u *url) generate() string {
 func (u *url) String() string {
     s := u.generate()
     re := regexp.MustCompile(`\/\/`)
-    return re.ReplaceAllString(s, "/")
+    s = re.ReplaceAllString(s, "/")
+    // Remove all url segments that consist solely of dots
+    segments := strings.Split(s, "/")
+    included := make([]string, 0, 16)
+    re = regexp.MustCompile(`^\.+$`)
+    for _, s := range segments {
+        if re.MatchString(s) {
+            continue
+        }
+        included = append(included, s)
+    }
+    return strings.Join(included, "/")
 }
 
 func generate(config data) {
@@ -517,7 +584,7 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
-    config := map[string]interface{} {
+    config := data {
         "source": wd,
         "dest": "_site",
         "posts": "_posts",
