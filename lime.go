@@ -623,7 +623,7 @@ func serve(config data) {
         fmt.Fprintf(w, "%v", r.URL)
     }
     addr := fmt.Sprintf(":%v", 8080)
-    log.Printf("Listening [localhost%s]", addr)
+    log.Printf("Listen [localhost%s]", addr)
     http.HandleFunc("/", h)
     http.ListenAndServe(addr, nil)
 }
