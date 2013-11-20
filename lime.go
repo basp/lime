@@ -14,6 +14,9 @@ import (
     "errors"
     "bytes"
     "bufio"
+    "flag"
+    "net/http"
+    "fmt"
 )
 
 type data map[string]interface{}
@@ -324,7 +327,7 @@ func (p *page) url() string {
 }
 
 func (p *post) render(payload data) {
-    payload.merge(p.data)
+    payload.merge(data { "page": p.data })
     p.output = executeTemplate(p.content, payload)
     p.output = transform(p.output)
     name, ok := p.data["layout"].(string)
@@ -340,7 +343,7 @@ func (p *post) render(payload data) {
 }
 
 func (p *page) render(payload data) {
-    payload.merge(p.data)
+    payload.merge(data { "page": p.data })
     p.output = executeTemplate(p.content, payload)
     name, ok := p.data["layout"].(string)
     if !ok {
@@ -379,13 +382,14 @@ func (p *page) write(dir string) {
 }
 
 func (p *page) template() string {
-    return "/{{.path}}/{{.basename}}.html" 
+    return "/{{.path}}/{{.basename}}{{.ext}}" 
 }
 
 func (p *page) placeholders() data {
     return data {
         "path": p.dir,
         "basename": p.basename,
+        "ext": p.ext,
     }
 }
 
@@ -601,7 +605,25 @@ func generate(config data) {
     s.write()
 }
 
+func serve(config data) {
+    wd := filepath.Join(config["source"].(string), config["dest"].(string))
+    err := os.Chdir(wd)
+    if err != nil {
+        log.Fatal(err)
+    }
+    h := func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintf(w, "%v", r.URL)
+    }
+    addr := fmt.Sprintf(":%v", 8080)
+    log.Printf("Listening on localhost%s", addr)
+    http.HandleFunc("/", h)
+    http.ListenAndServe(addr, nil)
+}
+
+var doserve = flag.Bool("serve", false, "serve the site from the destination directory")
+
 func main() {
+    flag.Parse()
     wd, err := os.Getwd()
     if err != nil {
         log.Fatal(err)
@@ -613,4 +635,7 @@ func main() {
         "layouts": "_layouts",
     }
     generate(config)
+    if *doserve {
+        serve(config)        
+    }
 }
