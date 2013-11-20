@@ -115,6 +115,18 @@ func hasYAMLHeader(path string) bool {
     return false
 }
 
+func executeTemplate(content string, payload data) string {
+    tmpl, err := template.New("t").Parse(content)
+    if err != nil {
+        log.Fatal(err)
+    }
+    var buffer bytes.Buffer
+    wr := bufio.NewWriter(&buffer)
+    tmpl.Execute(wr, payload)
+    wr.Flush()
+    return buffer.String()
+}
+
 var md = markdown.NewParser(&markdown.Extensions{Smart:true})
 func transform(input string) string {
     var buffer bytes.Buffer
@@ -312,7 +324,9 @@ func (p *page) url() string {
 }
 
 func (p *post) render(payload data) {
-    p.output = transform(p.content)
+    payload.merge(p.data)
+    p.output = executeTemplate(p.content, payload)
+    p.output = transform(p.output)
     name, ok := p.data["layout"].(string)
     if !ok {
         return
@@ -321,12 +335,13 @@ func (p *post) render(payload data) {
     if !ok {
         return
     }    
-    payload.merge(data { "content": p.output, "title": p.title() })
+    payload.merge(data { "content": p.output })
     p.output = layout.render(p.site.layouts, payload)
 }
 
 func (p *page) render(payload data) {
-    p.output = p.content
+    payload.merge(p.data)
+    p.output = executeTemplate(p.content, payload)
     name, ok := p.data["layout"].(string)
     if !ok {
         return
@@ -518,6 +533,10 @@ func (s *site) read() {
     s.readDirectories()
 }
 
+type renderer interface {
+    render(payload data)
+}
+
 func (s *site) render() {
     payload := data { "site": s }
     for _, p := range s.posts {
@@ -528,13 +547,16 @@ func (s *site) render() {
     }
 }
 
+type writer interface {
+    write(dir string)
+}
+
 func (s *site) write() {
+    dir := filepath.Join(s.config["source"].(string), s.config["dest"].(string))
     for _, p := range s.posts {
-        dir := filepath.Join(s.config["source"].(string), s.config["dest"].(string))
         p.write(dir)
     }
     for _, p := range s.pages {
-        dir := filepath.Join(s.config["source"].(string), s.config["dest"].(string))
         p.write(dir)
     }
 }
