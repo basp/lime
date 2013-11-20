@@ -64,3 +64,67 @@ Note the template tags (`{{.page.title}}` and `{{.content}}` in this case). To u
     Yay for the first post!
 
 Note the new `layout: post` declaration. This will tell lime to use the `post.html` template from the `_layouts` directory.
+
+However, we can do even better by using a master template. Create a new file in the `_layouts` directory:
+
+    touch master.html
+
+And modify it to look like below (you can copy the `post.html` template contents for this):
+
+    <!doctype html>
+    <html>
+    <head>
+        <title>{{.page.title}}</title>
+    </head>
+    <body>
+        {{.content}}
+    </body>
+    </html>
+
+Now edit the `post.html` template:
+
+    ---
+    layout: master
+    ---
+    <div class="post">
+        {{.content}}
+    </div>
+
+Note how we added a reference to the `master.html` layout with `layout: master`. Now this layout will be nested into the master. If we run lime again we'll se that everything will be nested and output to the `_site` folder just like before.
+
+The benefit of using nested layouts is that we can create an even look and feel for all our various posts and pages without the need to repeat ourselves.
+
+## Pages
+Besides posts (which are somewhat special) we can also add ordinary HTML pages to our site. These don't have a special directory but are just fetched from the site working directory (`mysite` in this case). The only requirement for these files is that they start with a `---` line. Let's create an index file for our site. Place this file directly below the `mysite` directory:
+
+    touch index.html
+
+And modify it so it looks like this:
+
+    ---
+    layout: master
+    title: Home
+    ---
+    <h1>{{.page.title}}</h1>
+    <p>This is the index page</p>
+
+If we now run lime again you'll see that `index.html` is placed into the `_site` output directory. As shown above, page files can use the same template and layout facilities as posts.
+
+## Other files
+You can even place other files below the `mysite` directory and have them processed by lime. Similar to page files, the only requirement is that they start with a `---` line. 
+
+We could, for example, include a CSS file too:
+
+    ---
+    body { font-family: sans-serif; }
+
+And this will be picked up by lime and put into the `_site` output directory. Of course, you can still use layouts and other metadata facilities too if you want:
+
+    ---
+    defaultColor: #acacac
+    ---
+    body {
+        color: {{.defaultColor}}
+    }
+
+This might be more useful for some files than others but the facilities are there if you want to use them.
