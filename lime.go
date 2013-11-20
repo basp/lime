@@ -443,7 +443,9 @@ func (s *site) reset() {
 
 func (s *site) entries(subfolder string) []string {
     base := filepath.Join(s.source, subfolder)
-    os.Chdir(base)
+    if err := os.Chdir(base); err != nil {
+        log.Fatal(err)
+    }
     entries := make([]string, 0, 256)
     visit := func(path string, f os.FileInfo, err error) error {
         if !f.IsDir() { 
@@ -477,7 +479,9 @@ func (s *site) addPost(p *post) {
 
 func (s *site) readLayouts() {
     base := filepath.Join(s.source, s.config["layouts"].(string))
-    os.Chdir(base)
+    if err := os.Chdir(base); err != nil {
+        log.Fatal(err)
+    }
     visit := func(path string, f os.FileInfo, err error) error {
         if !f.IsDir() {
             l := newLayout(s, base, path)
