@@ -603,10 +603,14 @@ func (u *url) String() string {
 }
 
 func generate(config data) {
+    log.Printf("Generate [%s]", config["source"].(string))
+    t0 := time.Now()
     s := newSite(config)
     s.read()
     s.render()
     s.write()
+    dur := time.Since(t0)
+    log.Printf("Done! [%v]", dur)
 }
 
 func serve(config data) {
@@ -619,7 +623,7 @@ func serve(config data) {
         fmt.Fprintf(w, "%v", r.URL)
     }
     addr := fmt.Sprintf(":%v", 8080)
-    log.Printf("Listening on localhost%s", addr)
+    log.Printf("Listening [localhost%s]", addr)
     http.HandleFunc("/", h)
     http.ListenAndServe(addr, nil)
 }
