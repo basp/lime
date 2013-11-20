@@ -40,8 +40,10 @@ type post struct {
 type page struct {
     convertible
     site *site
-    name string
     base string
+    dir string
+    name string
+    ext string
 }
 
 type layout struct {
@@ -57,6 +59,7 @@ type site struct {
     config map[string]interface{}
     layouts map[string]*layout
     posts []*post
+    pages []*page
     source string
     dest string
     categories map[string][]*post
@@ -94,6 +97,20 @@ func parseDate(s string) time.Time {
         log.Fatal(err)
     }
     return v
+}
+
+func hasYAMLHeader(path string) bool {
+    f, err := os.Open(path)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer f.Close()
+    rd := bufio.NewReader(f)
+    scanner := bufio.NewScanner(rd)   
+    if scanner.Scan() {
+        return scanner.Text() == "---"
+    }
+    return false
 }
 
 var md = markdown.NewParser(&markdown.Extensions{Smart:true})
@@ -313,6 +330,22 @@ func (p *post) write(dir string) {
     }
 }
 
+func newPage(s *site, base string, dir string, name string) *page {
+    p := &page {
+        site: s,
+        base: base,
+        dir: dir,
+        name: name,
+    }
+    p.process(name)
+    p.readYAML(filepath.Join(base, dir), name)
+    return p
+}
+
+func (p *page) process(name string) {
+    p.ext = filepath.Ext(name)
+}
+
 func newSite(config map[string]interface{}) *site {
     source, err := filepath.Abs(config["source"].(string))
     if err != nil {
@@ -392,9 +425,48 @@ func (s *site) readLayouts() {
     }
 }
 
+func (s *site) readDirectories() {
+    s.pages = make([]*page, 0, 32)
+    visit := func(path string, fi os.FileInfo, err error) error {
+        skip := false
+        n := fi.Name()
+        if strings.HasPrefix(n, ".") {
+            skip = true
+        }
+        if strings.HasPrefix(n, "_") {
+            skip = true
+        }
+        if strings.HasPrefix(n, "#") {
+            skip = true
+        }
+        if strings.HasSuffix(n, "~") {
+            skip = true
+        }
+        if fi.IsDir() {
+            if skip {
+                return filepath.SkipDir
+            }
+        } else {
+            if !skip && hasYAMLHeader(path) {
+                name := filepath.Base(path)
+                rel, err := filepath.Rel(s.source, path)
+                if err != nil {
+                    log.Fatal(err)
+                }
+                dir := filepath.Dir(rel)
+                page := newPage(s, s.source, dir, name)
+                s.pages = append(s.pages, page)
+            }
+        }
+        return nil
+    }
+    filepath.Walk(s.source, visit)
+}
+
 func (s *site) read() {
-    s.readLayouts();
-    s.readPosts();
+    s.readLayouts()
+    s.readPosts()
+    s.readDirectories()
 }
 
 func (s *site) render() {
@@ -433,6 +505,13 @@ func (u *url) String() string {
     return re.ReplaceAllString(s, "/")
 }
 
+func generate(config data) {
+    s := newSite(config)
+    s.read()
+    s.render()
+    s.write()
+}
+
 func main() {
     wd, err := os.Getwd()
     if err != nil {
@@ -442,10 +521,7 @@ func main() {
         "source": wd,
         "dest": "_site",
         "posts": "_posts",
-        "layouts" : "_layouts",
+        "layouts": "_layouts",
     }
-    s := newSite(config)
-    s.read()
-    s.render()
-    s.write()
+    generate(config)
 }
