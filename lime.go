@@ -1,6 +1,7 @@
 package main
 
 import (
+    "io"
     "io/ioutil"
     "path/filepath"
     "text/template"
@@ -545,8 +546,50 @@ type renderer interface {
     render(payload data)
 }
 
+// This is just a huge workaround to make it
+// possible to access stuff by lowercase in the
+// templates because honestly, uppercase is just
+// fugly in there. 
+//
+// NOTE: We can't access struct fields and methods 
+// if they are lowercase.
+func (p *post) collectPayload() data {
+    return data {
+        "title": p.title(),
+        "url": p.url(),
+        "date": p.date,
+        "slug": p.slug,
+        "tags": p.tags,
+        "categories": p.categories,
+    }
+}
+
+func (s *site) collectPayload() data {
+    posts := make([]data, 0, len(s.posts))
+    for _, p := range s.posts {
+        d := p.collectPayload()
+        if p.next() != nil {
+            d["next"] = p.next().collectPayload()
+        }
+        if p.previous() != nil {
+            d["previous"] = p.previous().collectPayload()
+        }
+        d.merge(p.data) // Merge into site global data
+        p.data.merge(d) // Merge into post data
+        posts = append(posts, d)
+    }
+    payload := data {
+        "site": data {
+            "time": s.time,
+            "source": s.source,
+            "posts": posts,
+        },
+    }
+    return payload
+}
+
 func (s *site) render() {
-    payload := data { "site": s }
+    payload := s.collectPayload()
     for _, p := range s.posts {
         p.render(payload)
     }
@@ -620,8 +663,31 @@ func serve(config data) {
         log.Fatal(err)
     }
     h := func(w http.ResponseWriter, r *http.Request) {
-        fmt.Fprintf(w, "%v", r.URL)
-    }
+        path := filepath.Join(wd, r.URL.Path)
+        fi, err := os.Open(path)
+        if err != nil {
+            fmt.Fprintf(w, "ERROR %v", err)
+            log.Printf("ERROR %v", err)
+            return
+        }
+        defer fi.Close()
+
+        rd := bufio.NewReader(fi)
+        buf := make([]byte, 1024)
+        for {
+            n, err := rd.Read(buf)
+            if err != nil && err != io.EOF {
+                log.Fatal(err)
+            }
+            if n == 0 {
+                break
+            }
+            if _, err := w.Write(buf[:n]); err != nil {
+                log.Fatal(err)
+            }
+        }
+        log.Printf("%s", path)
+    }    
     addr := fmt.Sprintf(":%v", 8080)
     log.Printf("Listen [localhost%s]", addr)
     http.HandleFunc("/", h)

@@ -1,0 +1,23 @@
+---
+title: Test
+layout: master
+---
+<pre>Generated at {{.site.time}}</pre>
+<table>
+    <tr>
+        <td>site.source</td>
+        <td>{{.site.source}}</td>
+    </tr>
+    <tr>
+        <td>page.title</td>
+        <td>{{.page.title}}</td>
+    </tr>
+</table>
+
+<table>
+    {{range .site.posts}}
+    <tr>
+        <td><a href="{{.url}}">{{.title}}</a></td>
+    </tr>
+    {{end}}
+</table>
